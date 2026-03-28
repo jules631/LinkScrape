@@ -17,10 +17,11 @@ import asyncio
 import os
 import sys
 
-from dotenv import load_dotenv
 from playwright.async_api import async_playwright
 
 from scraper import LINKEDIN_BASE_URL, _patch_webdriver
+
+AUTH_STATE_PATH = "auth_state.json"
 
 CANDIDATE_SELECTORS = [
     "div[data-urn]",
@@ -36,10 +37,9 @@ CANDIDATE_SELECTORS = [
 
 
 async def debug():
-    load_dotenv()
-    li_at = os.getenv("LINKEDIN_LI_AT_COOKIE", "").strip()
-    if not li_at:
-        print("ERROR: LINKEDIN_LI_AT_COOKIE not set in .env")
+    if not os.path.exists(AUTH_STATE_PATH):
+        print(f"ERROR: '{AUTH_STATE_PATH}' not found.")
+        print("Run 'python setup_auth.py' first to save your LinkedIn session.")
         sys.exit(1)
 
     async with async_playwright() as pw:
@@ -51,16 +51,8 @@ async def debug():
                 "Chrome/124.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1280, "height": 800},
+            storage_state=AUTH_STATE_PATH,
         )
-        await context.add_cookies([{
-            "name": "li_at",
-            "value": li_at,
-            "domain": ".linkedin.com",
-            "path": "/",
-            "httpOnly": True,
-            "secure": True,
-            "sameSite": "None",
-        }])
 
         page = await context.new_page()
         await _patch_webdriver(page)

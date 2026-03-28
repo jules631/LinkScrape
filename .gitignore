@@ -1,5 +1,7 @@
 .env
+auth_state.json
 __pycache__/
 *.pyc
 *.pyo
 .playwright/
+debug_screenshot.png

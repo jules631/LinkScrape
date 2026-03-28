@@ -61,8 +61,14 @@ async def _patch_webdriver(page: Page) -> None:
     """)
 
 
-async def create_browser_context(playwright, li_at: str, headless: bool = True):
-    """Launch Chromium and inject the LinkedIn session cookie."""
+async def create_browser_context(playwright, auth_state_path: str, headless: bool = True):
+    """Launch Chromium and restore a saved LinkedIn session."""
+    import os
+    if not os.path.exists(auth_state_path):
+        raise FileNotFoundError(
+            f"\n  '{auth_state_path}' not found.\n"
+            "  Run 'python setup_auth.py' first to log in and save your session.\n"
+        )
     browser = await playwright.chromium.launch(headless=headless)
     context = await browser.new_context(
         user_agent=(
@@ -73,18 +79,8 @@ async def create_browser_context(playwright, li_at: str, headless: bool = True):
         viewport={"width": 1280, "height": 800},
         locale="en-US",
         timezone_id="America/New_York",
+        storage_state=auth_state_path,
     )
-    await context.add_cookies([
-        {
-            "name": "li_at",
-            "value": li_at,
-            "domain": ".linkedin.com",
-            "path": "/",
-            "httpOnly": True,
-            "secure": True,
-            "sameSite": "None",
-        }
-    ])
     return browser, context
 
 

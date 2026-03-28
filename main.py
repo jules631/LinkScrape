@@ -60,19 +60,15 @@ def load_config(args: argparse.Namespace) -> dict:
     """Load and validate all required configuration from .env and CLI args."""
     load_dotenv()
 
-    required = {
-        "LINKEDIN_LI_AT_COOKIE": os.getenv("LINKEDIN_LI_AT_COOKIE", "").strip(),
+    notion_vars = {
         "NOTION_API_KEY": os.getenv("NOTION_API_KEY", "").strip(),
         "NOTION_DATABASE_ID": os.getenv("NOTION_DATABASE_ID", "").strip(),
     }
 
-    missing = [k for k, v in required.items() if not v]
+    missing = [k for k, v in notion_vars.items() if not v]
     if missing and not args.dry_run:
         logger.error("Missing required environment variables: %s", ", ".join(missing))
         logger.error("Copy .env.example to .env and fill in your credentials.")
-        sys.exit(1)
-    elif missing and args.dry_run and "LINKEDIN_LI_AT_COOKIE" in missing:
-        logger.error("LINKEDIN_LI_AT_COOKIE is required even for --dry-run (needed to log in).")
         sys.exit(1)
 
     # Parse scroll delay range
@@ -89,7 +85,8 @@ def load_config(args: argparse.Namespace) -> dict:
         max_scrolls = int(os.getenv("MAX_SCROLL_ITERATIONS", "50"))
 
     return {
-        **required,
+        **notion_vars,
+        "auth_state_path": os.getenv("AUTH_STATE_PATH", "auth_state.json"),
         "max_scrolls": max_scrolls,
         "scroll_delay": scroll_delay,
         "headless": not args.no_headless,
@@ -114,7 +111,7 @@ async def run(config: dict) -> None:
     async with async_playwright() as pw:
         browser, context = await create_browser_context(
             pw,
-            li_at=config["LINKEDIN_LI_AT_COOKIE"],
+            auth_state_path=config["auth_state_path"],
             headless=config["headless"],
         )
 

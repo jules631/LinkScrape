@@ -54,11 +54,19 @@ pip install -r requirements.txt
 playwright install chromium
 ```
 
+### Authenticate (one-time)
+
+```bash
+python setup_auth.py
+```
+
+A browser window opens. Log into LinkedIn normally, then press Enter in the terminal. Your session is saved to `auth_state.json` — no cookie hunting required. Re-run this any time the scraper reports an auth error.
+
 ### Configure
 
 ```bash
 cp .env.example .env
-# Fill in your credentials — see Setup Guide below
+# Fill in NOTION_API_KEY and NOTION_DATABASE_ID — see Setup Guide below
 ```
 
 ### Run
@@ -82,9 +90,9 @@ python main.py --max-scrolls 100
 ## User Journey
 
 1. You see a "drop your email" post on LinkedIn with 300 comments
-2. You grab your `li_at` cookie from your browser (30 seconds, one-time)
+2. You run `python setup_auth.py`, log in once through a browser window (30 seconds, one-time)
 3. You set up a Notion integration and database (5 minutes, one-time)
-4. You fill in `.env` with your credentials
+4. You fill in `.env` with your Notion credentials
 5. You run `python main.py`
 6. The tool opens a headless browser, scrolls your feed, expands all comment sections, and finds every email address
 7. All emails appear in Notion tagged `New`, ready to export into Mailchimp, Beehiiv, ConvertKit, or any other newsletter tool
@@ -145,17 +153,15 @@ From your Notion database, export the emails and import them into your newslette
 
 ## Setup Guide
 
-### 1. Get your LinkedIn `li_at` cookie
+### 1. Save your LinkedIn session
 
-This is your LinkedIn session identifier. It lets the tool browse LinkedIn as you, without triggering a login form or 2FA.
+```bash
+python setup_auth.py
+```
 
-1. Log into [LinkedIn](https://www.linkedin.com) in Chrome or Firefox
-2. Open DevTools: press `F12` (or right-click → Inspect)
-3. Go to **Application** tab → **Cookies** → `https://www.linkedin.com`
-4. Find the cookie named `li_at` and copy its **Value**
-5. Paste it into `.env` as `LINKEDIN_LI_AT_COOKIE=<your value>`
+A browser window will open. Log into LinkedIn as you normally would, then come back to the terminal and press Enter. Your full session (all cookies) is saved to `auth_state.json`.
 
-> The cookie expires after roughly a year, or sooner if you log out of all sessions. If the tool reports an auth error, refresh this value.
+> If the scraper ever reports an authentication error, just run `python setup_auth.py` again.
 
 ---
 
