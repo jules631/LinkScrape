@@ -2,6 +2,10 @@
 
 Automatically collect emails from LinkedIn "drop your email" posts and add them to your Notion newsletter database.
 
+![LinkScrape demo](assets/demo.gif)
+
+> **No GIF yet?** See [demo/README.md](demo/README.md) to record one in ~2 minutes using the included simulation script.
+
 ---
 
 ## The Problem
@@ -88,6 +92,8 @@ python main.py --max-scrolls 100
 ---
 
 ## Expected Output
+
+> To see this interactively, run `python demo/simulate_run.py` — it plays back a realistic session with real timing.
 
 ### While running
 
