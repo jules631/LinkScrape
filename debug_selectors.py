@@ -102,8 +102,47 @@ async def debug():
                 except Exception:
                     pass
         else:
-            print("\nNo selectors matched. Check debug_screenshot.png to see what loaded.")
-            print("The page may have shown a login wall or CAPTCHA.")
+            print("\nNo selectors matched — inspecting actual DOM structure...")
+
+        print("\n── DOM inspection ────────────────────────────────────")
+        # Find ALL elements with data-urn regardless of tag type
+        urn_elements = await page.evaluate("""() => {
+            const els = document.querySelectorAll('[data-urn]');
+            return Array.from(els).slice(0, 5).map(el => ({
+                tag: el.tagName,
+                dataUrn: (el.getAttribute('data-urn') || '').slice(0, 60),
+                classes: (el.className || '').slice(0, 80),
+                html: el.outerHTML.slice(0, 150)
+            }));
+        }""")
+        if urn_elements:
+            print(f"  Found {len(urn_elements)} [data-urn] elements (any tag):")
+            for el in urn_elements:
+                print(f"    <{el['tag']}> data-urn={el['dataUrn']}")
+                print(f"    classes: {el['classes']}")
+                print(f"    html: {el['html']}\n")
+        else:
+            print("  No [data-urn] elements found anywhere on the page.")
+
+        # Dump first 3 children of the main feed container
+        feed_children = await page.evaluate("""() => {
+            const feed = document.querySelector('main') ||
+                         document.querySelector('[role=main]') ||
+                         document.querySelector('.scaffold-finite-scroll__content');
+            if (!feed) return [{'tag':'?','classes':'','attrs':'Could not find main/feed container','html':''}];
+            return Array.from(feed.children).slice(0, 3).map(el => ({
+                tag: el.tagName,
+                classes: (el.className || '').slice(0, 100),
+                attrs: Array.from(el.attributes).map(a => a.name+'='+a.value).join(' ').slice(0, 100),
+                html: el.outerHTML.slice(0, 200)
+            }));
+        }""")
+        print("  First 3 children of main feed container:")
+        for el in feed_children:
+            print(f"    <{el['tag']}> classes={el['classes']}")
+            print(f"    attrs: {el['attrs']}")
+            print(f"    html: {el['html']}\n")
+        print("──────────────────────────────────────────────────────")
 
         await browser.close()
 
