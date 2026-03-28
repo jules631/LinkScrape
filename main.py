@@ -82,7 +82,7 @@ def load_config(args: argparse.Namespace) -> dict:
     # Max scrolls: CLI arg > env var > default
     max_scrolls = args.max_scrolls
     if max_scrolls is None:
-        max_scrolls = int(os.getenv("MAX_SCROLL_ITERATIONS", "50"))
+        max_scrolls = int(os.getenv("MAX_SCROLL_ITERATIONS", "100"))
 
     return {
         **notion_vars,

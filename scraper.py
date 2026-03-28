@@ -77,7 +77,7 @@ async def create_browser_context(playwright, auth_state_path: str, headless: boo
 async def scrape_feed(
     page: Page,
     max_scrolls: int = 50,
-    scroll_delay_range: tuple[float, float] = (5.0, 10.0),
+    scroll_delay_range: tuple[float, float] = (1.0, 2.0),
 ):
     """
     Async generator that scrolls the LinkedIn feed and yields ScrapedPost objects.
@@ -158,15 +158,19 @@ async def scrape_feed(
             }
             window.scrollTo(0, document.body.scrollHeight);
         }""")
-        # Press End key to simulate a real user — triggers React scroll listeners
+        # Press End twice to scroll 2 viewport heights — loads a larger post batch
+        await page.keyboard.press("End")
         await page.keyboard.press("End")
 
-        delay = random.uniform(min_delay, max_delay)
-        logger.debug("Waiting %.1f s before next scroll...", delay)
-        await asyncio.sleep(delay)
+        # Short jitter so we don't hammer LinkedIn's servers
+        await asyncio.sleep(random.uniform(min_delay, max_delay))
 
-        # Wait for network to settle (with fallback)
-        try:
-            await page.wait_for_load_state("networkidle", timeout=8000)
-        except PlaywrightTimeoutError:
-            pass
+        # Adaptive wait: proceed as soon as new content appears (up to 10s)
+        for _ in range(20):  # 20 × 0.5s = 10s ceiling
+            await asyncio.sleep(0.5)
+            current_len: int = await page.evaluate(
+                "() => (document.querySelector('main')?.innerText"
+                " || document.body.innerText || '').length"
+            )
+            if current_len > prev_text_len + 200:
+                break  # New content loaded — no need to keep waiting
