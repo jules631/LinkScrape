@@ -2,22 +2,18 @@
 debug_selectors.py — Inspect LinkedIn feed HTML to find correct CSS selectors.
 
 Run this when the scraper finds 0 posts. It opens a visible browser, loads
-your feed, and tells you exactly which selectors match the current HTML.
+your feed, dumps what's actually in the DOM, and reports which candidate
+selectors match.
 
 Usage:
     python debug_selectors.py
-
-Output:
-    - Prints match counts for each candidate selector
-    - Saves debug_screenshot.png so you can see what the browser loaded
-    - Prints outer HTML snippets of matched elements
 """
 
 import asyncio
 import os
 import sys
 
-from playwright.async_api import async_playwright
+from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
 
 from scraper import LINKEDIN_BASE_URL, _patch_webdriver
 
@@ -33,6 +29,10 @@ CANDIDATE_SELECTORS = [
     "li.feed-shared-update-v2",
     "[data-urn*='activity']",
     "[data-id*='activity']",
+    "div[data-view-name]",
+    "div[data-view-name='feed-full-update']",
+    "[data-finite-scroll-item-index]",
+    "li[data-occludable-update-urn]",
 ]
 
 
@@ -57,20 +57,32 @@ async def debug():
         page = await context.new_page()
         await _patch_webdriver(page)
 
-        print("Navigating to LinkedIn feed...")
+        print("Navigating to LinkedIn homepage...")
         await page.goto(LINKEDIN_BASE_URL, wait_until="domcontentloaded", timeout=30000)
         await asyncio.sleep(2)
-        await page.goto(f"{LINKEDIN_BASE_URL}/feed/", wait_until="domcontentloaded", timeout=30000)
 
-        print("Waiting 5 seconds for feed to render...")
+        print("Navigating to feed (waiting for network to settle)...")
+        try:
+            await page.goto(
+                f"{LINKEDIN_BASE_URL}/feed/",
+                wait_until="networkidle",
+                timeout=30000,
+            )
+        except PlaywrightTimeoutError:
+            print("  (networkidle timed out — continuing anyway)")
+
+        print("Waiting 5 seconds for feed to fully render...")
         await asyncio.sleep(5)
 
-        print("\nSaving screenshot to debug_screenshot.png...")
-        try:
-            await page.screenshot(path="debug_screenshot.png", full_page=False, timeout=0)
-        except Exception as e:
-            print(f"  (screenshot failed: {e})")
+        # ── Page identity check ───────────────────────────────────────────────
+        current_url = page.url
+        page_title = await page.title()
+        print(f"\n── Page loaded ───────────────────────────────────────")
+        print(f"  URL:   {current_url}")
+        print(f"  Title: {page_title}")
+        print("──────────────────────────────────────────────────────")
 
+        # ── Selector match counts ─────────────────────────────────────────────
         print("\n── Selector match counts ─────────────────────────────")
         best_selector = None
         best_count = 0
@@ -101,10 +113,10 @@ async def debug():
                     print(f"       {html[:200]}")
                 except Exception:
                     pass
-        else:
-            print("\nNo selectors matched — inspecting actual DOM structure...")
 
+        # ── DOM inspection ────────────────────────────────────────────────────
         print("\n── DOM inspection ────────────────────────────────────")
+
         # Find ALL elements with data-urn regardless of tag type
         urn_elements = await page.evaluate("""() => {
             const els = document.querySelectorAll('[data-urn]');
@@ -142,11 +154,16 @@ async def debug():
             print(f"    <{el['tag']}> classes={el['classes']}")
             print(f"    attrs: {el['attrs']}")
             print(f"    html: {el['html']}\n")
+
+        # ── Raw body HTML dump ────────────────────────────────────────────────
+        print("── Raw body HTML (first 3000 chars) ──────────────────")
+        body_html = await page.evaluate("() => document.body.innerHTML.slice(0, 3000)")
+        print(body_html)
         print("──────────────────────────────────────────────────────")
 
         await browser.close()
 
-    print("\nDone. Open debug_screenshot.png to see what the browser loaded.")
+    print("\nDone.")
     if best_selector:
         print(f"\nUpdate SELECTORS['post_container'] in scraper.py to: {best_selector!r}")
 

@@ -140,6 +140,21 @@ async def scrape_feed(
 
     logger.info("Starting feed scrape (max %d scrolls)...", max_scrolls)
 
+    # Wait for network to settle and the feed container to appear
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+    except PlaywrightTimeoutError:
+        pass  # Continue even if networkidle times out
+
+    try:
+        await page.wait_for_selector(SELECTORS["feed_indicator"], timeout=15000)
+        logger.debug("Feed container confirmed present.")
+    except PlaywrightTimeoutError:
+        logger.warning(
+            "Feed container not found after 15s — proceeding anyway. "
+            "Try --no-headless to inspect the browser."
+        )
+
     for scroll_num in range(max_scrolls):
         # Find all currently visible post containers
         post_containers = page.locator(SELECTORS["post_container"])
