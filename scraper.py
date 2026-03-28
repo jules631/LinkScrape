@@ -77,7 +77,7 @@ async def create_browser_context(playwright, auth_state_path: str, headless: boo
 async def scrape_feed(
     page: Page,
     max_scrolls: int = 50,
-    scroll_delay_range: tuple[float, float] = (3.0, 7.0),
+    scroll_delay_range: tuple[float, float] = (5.0, 10.0),
 ):
     """
     Async generator that scrolls the LinkedIn feed and yields ScrapedPost objects.
@@ -143,14 +143,30 @@ async def scrape_feed(
                 logger.info("Feed exhausted — no new content after 3 consecutive scrolls.")
                 break
 
-        # Scroll down and wait
-        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+        # Scroll down — try all likely scroll containers so LinkedIn's
+        # intersection-observer-based infinite scroll fires.
+        await page.evaluate("""() => {
+            const targets = [
+                document.querySelector('main'),
+                document.querySelector('[role="main"]'),
+                document.querySelector('.scaffold-layout__main'),
+                document.documentElement,
+                document.body,
+            ];
+            for (const el of targets) {
+                if (el) el.scrollTop = el.scrollHeight;
+            }
+            window.scrollTo(0, document.body.scrollHeight);
+        }""")
+        # Press End key to simulate a real user — triggers React scroll listeners
+        await page.keyboard.press("End")
+
         delay = random.uniform(min_delay, max_delay)
         logger.debug("Waiting %.1f s before next scroll...", delay)
         await asyncio.sleep(delay)
 
         # Wait for network to settle (with fallback)
         try:
-            await page.wait_for_load_state("networkidle", timeout=5000)
+            await page.wait_for_load_state("networkidle", timeout=8000)
         except PlaywrightTimeoutError:
             pass
