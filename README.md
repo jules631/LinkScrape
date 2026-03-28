@@ -87,6 +87,56 @@ python main.py --max-scrolls 100
 
 ---
 
+## Expected Output
+
+### While running
+
+You'll see live progress in the terminal as the tool scrolls your feed and finds emails:
+
+```
+09:12:03  INFO      DRY RUN — emails will be printed, not written to Notion.
+09:12:05  INFO      Navigating to LinkedIn feed...
+09:12:09  INFO      Feed loaded. Starting scrape...
+09:12:09  INFO      Starting feed scrape (max 50 scrolls)...
+09:12:14  INFO      Scroll 1/50 — found 6 new posts (6 total seen).
+09:12:21  INFO      Added: jane@gmail.com  (post: https://linkedin.com/feed/update/urn:...)
+09:12:22  INFO      Added: bob@outlook.com  (post: https://linkedin.com/feed/update/urn:...)
+09:12:31  INFO      Scroll 2/50 — found 5 new posts (11 total seen).
+...
+09:18:44  INFO      Feed exhausted — no new posts after 3 consecutive scrolls.
+
+──────────────────────────────────────────────────
+  Posts scraped:    47
+  Emails found:     183
+  New emails added: 176
+──────────────────────────────────────────────────
+```
+
+Duplicate emails (already in Notion from a previous run) are silently skipped — you'll see `New emails added` be lower than `Emails found` on reruns.
+
+### In Notion
+
+Once complete, your Notion database will have a new row for every email found:
+
+| Email | Source Post URL | Date Added | Status |
+|---|---|---|---|
+| jane@gmail.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
+| bob@outlook.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
+| sarah@company.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
+
+Every row starts with **Status: New** so you can filter your database by `Status = New` to see exactly what was just added.
+
+### Getting emails into your newsletter tool
+
+From your Notion database, export the emails and import them into your newsletter platform:
+
+1. **Filter** your database to `Status = New`
+2. **Export** as CSV (top right `...` → Export → CSV)
+3. **Import** the CSV into your newsletter tool (Mailchimp, Beehiiv, ConvertKit, etc.)
+4. **Update** the Status of imported rows to `Contacted` so you know they've been actioned
+
+---
+
 ## Setup Guide
 
 ### 1. Get your LinkedIn `li_at` cookie
