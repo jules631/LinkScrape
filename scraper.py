@@ -1,15 +1,20 @@
 """
 scraper.py — Authenticate to LinkedIn and scrape feed post comments.
 
-Authentication strategy: inject the li_at session cookie directly, bypassing
-the login form and 2FA entirely. This is more reliable than automating the
-login page and far less likely to trigger bot detection.
+Authentication strategy: restore a full browser session saved by setup_auth.py
+(Playwright storage_state — all cookies + localStorage). This is more reliable
+than injecting a single cookie and avoids LinkedIn's redirect-loop detection.
 
 Anti-detection measures:
   - Realistic user-agent and viewport
   - navigator.webdriver patched to undefined via add_init_script
   - Jittered delays between all actions (no fixed sleeps)
   - Headless mode optional (--no-headless for debugging)
+
+Scraping strategy: LinkedIn's current React SPA uses hashed CSS class names
+and no data-* attributes, so per-post CSS selectors are unreliable. Instead we
+extract all innerText from the <main> element after each scroll and let the
+email regex in extractor.py find emails in the raw text.
 """
 
 import asyncio
@@ -23,25 +28,10 @@ logger = logging.getLogger(__name__)
 
 LINKEDIN_BASE_URL = "https://www.linkedin.com"
 
-# ── CSS selectors ─────────────────────────────────────────────────────────────
-# Centralised here so LinkedIn UI changes only require updating this dict.
+# ── Selectors ──────────────────────────────────────────────────────────────────
 SELECTORS = {
-    # A post in the feed — identified by its data-urn attribute
-    "post_container": "div[data-urn]",
-    # The post's unique identifier attribute
-    "post_urn_attr": "data-urn",
-    # Permalink to the post (used as source URL)
-    "post_link": "a[href*='/feed/update/']",
-    # Button that opens / focuses the comment section
-    "comments_button": "button[aria-label*='comment'], button[aria-label*='Comment']",
-    # Button to load additional comments
-    "load_more_comments": "button[aria-label*='Load more comments'], button[aria-label*='load more comments']",
-    # Individual comment text content
-    "comment_text": "span.comments-comment-item-content-body, div.comments-comment-item__main-content span",
-    # Element present when successfully logged into LinkedIn feed
-    "feed_indicator": "div.scaffold-finite-scroll, div[data-finite-scroll-hotkey-context]",
-    # Authwall — shown when the session is invalid
-    "authwall": "div.authwall-join-form, div#join-form",
+    # Feed container — used to confirm the feed has rendered
+    "feed_indicator": "main",
 }
 
 
@@ -84,45 +74,6 @@ async def create_browser_context(playwright, auth_state_path: str, headless: boo
     return browser, context
 
 
-async def _expand_comments(post) -> list[str]:
-    """
-    Open the comment section on a post and load all comments.
-    Returns a list of comment text strings.
-    """
-    # Try to click the comments button to open the comment section
-    try:
-        btn_locator = post.locator(SELECTORS["comments_button"])
-        if await btn_locator.count() > 0:
-            await btn_locator.first.click()
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-    except Exception as e:
-        logger.debug("Could not click comments button: %s", e)
-
-    # Loop-click "Load more comments" until all are visible
-    while True:
-        try:
-            load_more = post.locator(SELECTORS["load_more_comments"])
-            if await load_more.count() == 0:
-                break
-            await load_more.first.click()
-            await asyncio.sleep(random.uniform(0.8, 1.6))
-        except PlaywrightTimeoutError:
-            break
-        except Exception as e:
-            logger.debug("Could not load more comments: %s", e)
-            break
-
-    # Collect all visible comment texts in one round-trip
-    texts: list[str] = []
-    try:
-        raw = await post.locator(SELECTORS["comment_text"]).all_inner_texts()
-        texts = [t.strip() for t in raw if t.strip()]
-    except Exception as e:
-        logger.debug("Error collecting comment texts: %s", e)
-
-    return texts
-
-
 async def scrape_feed(
     page: Page,
     max_scrolls: int = 50,
@@ -131,21 +82,26 @@ async def scrape_feed(
     """
     Async generator that scrolls the LinkedIn feed and yields ScrapedPost objects.
 
-    Each ScrapedPost contains the post URN, its URL, and all comment texts.
-    Stops after max_scrolls iterations or when no new posts appear for 3 consecutive scrolls.
+    LinkedIn's React SPA uses hashed CSS class names and no data-* attributes,
+    so we can't target individual posts. Instead, after each scroll we extract
+    all innerText from <main> and yield the *new* text (delta since last scroll)
+    as a single ScrapedPost. The caller runs email regex on that text.
+
+    Stops after max_scrolls iterations or 3 consecutive scrolls with no new content.
     """
-    seen_urns: set[str] = set()
     empty_scroll_count = 0
+    prev_text_len = 0
     min_delay, max_delay = scroll_delay_range
 
     logger.info("Starting feed scrape (max %d scrolls)...", max_scrolls)
 
-    # Wait for network to settle and the feed container to appear
+    # Wait for network to settle
     try:
         await page.wait_for_load_state("networkidle", timeout=10000)
     except PlaywrightTimeoutError:
-        pass  # Continue even if networkidle times out
+        pass
 
+    # Wait for the main content area to appear
     try:
         await page.wait_for_selector(SELECTORS["feed_indicator"], timeout=15000)
         logger.debug("Feed container confirmed present.")
@@ -156,59 +112,36 @@ async def scrape_feed(
         )
 
     for scroll_num in range(max_scrolls):
-        # Find all currently visible post containers
-        post_containers = page.locator(SELECTORS["post_container"])
-        count = await post_containers.count()
+        # Extract all visible text from the feed
+        text: str = await page.evaluate(
+            "() => document.querySelector('main')?.innerText"
+            " || document.body.innerText || ''"
+        )
 
-        new_posts_this_scroll = 0
+        # Only process text that's new since the last scroll
+        new_text = text[prev_text_len:]
+        prev_text_len = len(text)
 
-        for i in range(count):
-            try:
-                post = post_containers.nth(i)
-                urn = await post.get_attribute(SELECTORS["post_urn_attr"])
-                if not urn or urn in seen_urns:
-                    continue
-
-                seen_urns.add(urn)
-                new_posts_this_scroll += 1
-
-                # Try to get the post's permalink
-                url = ""
-                try:
-                    link_locator = post.locator(SELECTORS["post_link"])
-                    if await link_locator.count() > 0:
-                        href = await link_locator.first.get_attribute("href")
-                        if href:
-                            url = href if href.startswith("http") else f"{LINKEDIN_BASE_URL}{href}"
-                except Exception as e:
-                    logger.debug("Could not get post URL: %s", e)
-
-                logger.debug("Scraping post %s", urn)
-                comment_texts = await _expand_comments(post)
-
-                if comment_texts:
-                    yield ScrapedPost(urn=urn, url=url, comment_texts=comment_texts)
-
-            except PlaywrightTimeoutError:
-                logger.debug("Timeout on post %d of scroll %d, skipping.", i, scroll_num)
-                continue
-            except Exception as e:
-                logger.debug("Error processing post: %s", e)
-                continue
-
-        # Track consecutive empty scrolls to detect feed exhaustion
-        if new_posts_this_scroll == 0:
-            empty_scroll_count += 1
-            logger.debug("No new posts on scroll %d (%d consecutive empty).", scroll_num, empty_scroll_count)
-            if empty_scroll_count >= 3:
-                logger.info("Feed exhausted — no new posts after 3 consecutive scrolls.")
-                break
-        else:
+        if new_text.strip():
             empty_scroll_count = 0
             logger.info(
-                "Scroll %d/%d — found %d new posts (%d total seen).",
-                scroll_num + 1, max_scrolls, new_posts_this_scroll, len(seen_urns),
+                "Scroll %d/%d — %d new chars of content.",
+                scroll_num + 1, max_scrolls, len(new_text),
             )
+            yield ScrapedPost(
+                urn=f"scroll-{scroll_num}",
+                url=page.url,
+                comment_texts=[new_text],
+            )
+        else:
+            empty_scroll_count += 1
+            logger.debug(
+                "No new content on scroll %d (%d consecutive empty).",
+                scroll_num, empty_scroll_count,
+            )
+            if empty_scroll_count >= 3:
+                logger.info("Feed exhausted — no new content after 3 consecutive scrolls.")
+                break
 
         # Scroll down and wait
         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")

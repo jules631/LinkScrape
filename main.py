@@ -22,7 +22,7 @@ from playwright.async_api import async_playwright
 
 from extractor import extract_emails
 from notion_integration import NotionIntegration
-from scraper import SELECTORS, _patch_webdriver, create_browser_context, scrape_feed
+from scraper import _patch_webdriver, create_browser_context, scrape_feed
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -129,25 +129,17 @@ async def run(config: dict) -> None:
             # Give the page a moment to settle then check for expected elements
             await asyncio.sleep(3)
 
-            authwall = page.locator(SELECTORS["authwall"])
-            if await authwall.count() > 0:
+            current_url = page.url
+            if (
+                "/login" in current_url
+                or "/authwall" in current_url
+                or "linkedin.com/feed" not in current_url
+            ):
                 logger.error(
-                    "\n"
-                    "  LinkedIn session cookie is expired or invalid.\n"
-                    "  To fix:\n"
-                    "    1. Log into LinkedIn in your browser\n"
-                    "    2. Open DevTools → Application → Cookies → linkedin.com\n"
-                    "    3. Copy the 'li_at' cookie value\n"
-                    "    4. Update LINKEDIN_LI_AT_COOKIE in your .env file\n"
+                    "LinkedIn session expired or invalid. "
+                    "Run 'python setup_auth.py' to re-authenticate."
                 )
                 sys.exit(1)
-
-            feed = page.locator(SELECTORS["feed_indicator"])
-            if await feed.count() == 0:
-                logger.warning(
-                    "Could not confirm feed loaded — proceeding anyway. "
-                    "If scraping fails, try --no-headless to inspect the browser."
-                )
 
             logger.info("Feed loaded. Starting scrape...")
 
