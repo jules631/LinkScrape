@@ -67,10 +67,6 @@ class NotionIntegration:
         logger.info("Found %d existing emails in Notion.", len(existing))
         return existing
 
-    def is_known(self, email: str) -> bool:
-        """Return True if this email is already in the Notion database cache."""
-        return email.lower() in self._existing_emails
-
     async def add_email(self, email: str, source_url: str) -> bool:
         """
         Create a new page in the Notion database for this email.
@@ -78,6 +74,7 @@ class NotionIntegration:
         Respects Notion's 3 req/s rate limit via a 0.4 s post-write sleep.
         """
         email = email.lower().strip()
+        success = False
         try:
             await self.client.pages.create(
                 parent={"database_id": self.database_id},
@@ -96,11 +93,11 @@ class NotionIntegration:
                     },
                 },
             )
-            # Add to in-memory cache so subsequent checks within the same run work
             self._existing_emails.add(email)
-            # Stay under Notion's 3 req/s rate limit
-            await asyncio.sleep(0.4)
-            return True
+            success = True
         except APIResponseError as e:
             logger.error("Failed to add %s to Notion: %s", email, e)
-            return False
+        finally:
+            # Always throttle to stay under Notion's 3 req/s rate limit
+            await asyncio.sleep(0.4)
+        return success

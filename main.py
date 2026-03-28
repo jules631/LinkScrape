@@ -22,7 +22,7 @@ from playwright.async_api import async_playwright
 
 from extractor import extract_emails
 from notion_integration import NotionIntegration
-from scraper import SELECTORS, create_browser_context, scrape_feed
+from scraper import SELECTORS, _patch_webdriver, create_browser_context, scrape_feed
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -121,8 +121,6 @@ async def run(config: dict) -> None:
         try:
             page = await context.new_page()
 
-            # Patch webdriver fingerprint before any navigation
-            from scraper import _patch_webdriver
             await _patch_webdriver(page)
 
             logger.info("Navigating to LinkedIn feed...")

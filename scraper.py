@@ -17,9 +17,11 @@ import logging
 import random
 from dataclasses import dataclass, field
 
-from playwright.async_api import async_playwright, Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
 
 logger = logging.getLogger(__name__)
+
+LINKEDIN_BASE_URL = "https://www.linkedin.com"
 
 # ── CSS selectors ─────────────────────────────────────────────────────────────
 # Centralised here so LinkedIn UI changes only require updating this dict.
@@ -86,19 +88,19 @@ async def create_browser_context(playwright, li_at: str, headless: bool = True):
     return browser, context
 
 
-async def _expand_comments(page: Page, post) -> list[str]:
+async def _expand_comments(post) -> list[str]:
     """
     Open the comment section on a post and load all comments.
     Returns a list of comment text strings.
     """
     # Try to click the comments button to open the comment section
     try:
-        btn = post.locator(SELECTORS["comments_button"]).first
-        if await btn.count() > 0:
-            await btn.click()
+        btn_locator = post.locator(SELECTORS["comments_button"])
+        if await btn_locator.count() > 0:
+            await btn_locator.first.click()
             await asyncio.sleep(random.uniform(1.0, 2.0))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug("Could not click comments button: %s", e)
 
     # Loop-click "Load more comments" until all are visible
     while True:
@@ -110,21 +112,15 @@ async def _expand_comments(page: Page, post) -> list[str]:
             await asyncio.sleep(random.uniform(0.8, 1.6))
         except PlaywrightTimeoutError:
             break
-        except Exception:
+        except Exception as e:
+            logger.debug("Could not load more comments: %s", e)
             break
 
-    # Collect all visible comment texts
+    # Collect all visible comment texts in one round-trip
     texts: list[str] = []
     try:
-        comment_els = post.locator(SELECTORS["comment_text"])
-        count = await comment_els.count()
-        for i in range(count):
-            try:
-                text = await comment_els.nth(i).inner_text(timeout=3000)
-                if text.strip():
-                    texts.append(text.strip())
-            except Exception:
-                continue
+        raw = await post.locator(SELECTORS["comment_text"]).all_inner_texts()
+        texts = [t.strip() for t in raw if t.strip()]
     except Exception as e:
         logger.debug("Error collecting comment texts: %s", e)
 
@@ -168,16 +164,16 @@ async def scrape_feed(
                 # Try to get the post's permalink
                 url = ""
                 try:
-                    link_el = post.locator(SELECTORS["post_link"]).first
-                    if await link_el.count() > 0:
-                        href = await link_el.get_attribute("href")
+                    link_locator = post.locator(SELECTORS["post_link"])
+                    if await link_locator.count() > 0:
+                        href = await link_locator.first.get_attribute("href")
                         if href:
-                            url = href if href.startswith("http") else f"https://www.linkedin.com{href}"
-                except Exception:
-                    pass
+                            url = href if href.startswith("http") else f"{LINKEDIN_BASE_URL}{href}"
+                except Exception as e:
+                    logger.debug("Could not get post URL: %s", e)
 
                 logger.debug("Scraping post %s", urn)
-                comment_texts = await _expand_comments(page, post)
+                comment_texts = await _expand_comments(post)
 
                 if comment_texts:
                     yield ScrapedPost(urn=urn, url=url, comment_texts=comment_texts)
