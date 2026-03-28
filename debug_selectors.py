@@ -66,7 +66,10 @@ async def debug():
         await asyncio.sleep(5)
 
         print("\nSaving screenshot to debug_screenshot.png...")
-        await page.screenshot(path="debug_screenshot.png", full_page=False)
+        try:
+            await page.screenshot(path="debug_screenshot.png", full_page=False, timeout=0)
+        except Exception as e:
+            print(f"  (screenshot failed: {e})")
 
         print("\n── Selector match counts ─────────────────────────────")
         best_selector = None
