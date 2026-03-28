@@ -124,6 +124,8 @@ async def run(config: dict) -> None:
             await _patch_webdriver(page)
 
             logger.info("Navigating to LinkedIn feed...")
+            await page.goto("https://www.linkedin.com", wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(2)
             await page.goto("https://www.linkedin.com/feed/", wait_until="domcontentloaded", timeout=30000)
 
             # ── Auth check ────────────────────────────────────────────────────

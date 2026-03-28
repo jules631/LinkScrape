@@ -66,6 +66,8 @@ async def debug():
         await _patch_webdriver(page)
 
         print("Navigating to LinkedIn feed...")
+        await page.goto(LINKEDIN_BASE_URL, wait_until="domcontentloaded", timeout=30000)
+        await asyncio.sleep(2)
         await page.goto(f"{LINKEDIN_BASE_URL}/feed/", wait_until="domcontentloaded", timeout=30000)
 
         print("Waiting 5 seconds for feed to render...")
