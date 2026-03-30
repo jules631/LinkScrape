@@ -28,12 +28,6 @@ logger = logging.getLogger(__name__)
 
 LINKEDIN_BASE_URL = "https://www.linkedin.com"
 
-# ── Selectors ──────────────────────────────────────────────────────────────────
-SELECTORS = {
-    # Feed container — used to confirm the feed has rendered
-    "feed_indicator": "main",
-}
-
 
 @dataclass
 class ScrapedPost:
@@ -103,7 +97,7 @@ async def scrape_feed(
 
     # Wait for the main content area to appear
     try:
-        await page.wait_for_selector(SELECTORS["feed_indicator"], timeout=15000)
+        await page.wait_for_selector("main", timeout=15000)
         logger.debug("Feed container confirmed present.")
     except PlaywrightTimeoutError:
         logger.warning(
@@ -111,16 +105,18 @@ async def scrape_feed(
             "Try --no-headless to inspect the browser."
         )
 
+    prev_children = 0
+
     for scroll_num in range(max_scrolls):
-        # Extract all visible text from the feed
         text: str = await page.evaluate(
             "() => document.querySelector('main')?.innerText"
             " || document.body.innerText || ''"
         )
-
-        # Only process text that's new since the last scroll
         new_text = text[prev_text_len:]
         prev_text_len = len(text)
+        prev_children = await page.evaluate(
+            "() => document.querySelector('main')?.childElementCount ?? 0"
+        )
 
         if new_text.strip():
             empty_scroll_count = 0
@@ -143,8 +139,6 @@ async def scrape_feed(
                 logger.info("Feed exhausted — no new content after 3 consecutive scrolls.")
                 break
 
-        # Scroll down — try all likely scroll containers so LinkedIn's
-        # intersection-observer-based infinite scroll fires.
         await page.evaluate("""() => {
             const targets = [
                 document.querySelector('main'),
@@ -158,19 +152,16 @@ async def scrape_feed(
             }
             window.scrollTo(0, document.body.scrollHeight);
         }""")
-        # Press End twice to scroll 2 viewport heights — loads a larger post batch
         await page.keyboard.press("End")
         await page.keyboard.press("End")
 
-        # Short jitter so we don't hammer LinkedIn's servers
         await asyncio.sleep(random.uniform(min_delay, max_delay))
 
         # Adaptive wait: proceed as soon as new content appears (up to 10s)
         for _ in range(20):  # 20 × 0.5s = 10s ceiling
             await asyncio.sleep(0.5)
-            current_len: int = await page.evaluate(
-                "() => (document.querySelector('main')?.innerText"
-                " || document.body.innerText || '').length"
+            current_children: int = await page.evaluate(
+                "() => document.querySelector('main')?.childElementCount ?? 0"
             )
-            if current_len > prev_text_len + 200:
-                break  # New content loaded — no need to keep waiting
+            if current_children > prev_children:
+                break

@@ -1,228 +1,124 @@
 # LinkScrape
 
-Automatically collect emails from LinkedIn "drop your email" posts and add them to your Notion newsletter database.
+Scrapes emails from LinkedIn "drop your email" post comments and saves them to Notion.
 
 ![LinkScrape demo](assets/demo.gif)
-
-> **No GIF yet?** See [demo/README.md](demo/README.md) to record one in ~2 minutes using the included simulation script.
 
 ---
 
 ## The Problem
 
-People post on LinkedIn: *"Type your email below and I'll send you my free guide."*
-Hundreds of people comment their email addresses — warm, self-selected leads who **asked** to hear from you.
+LinkedIn "drop your email" posts generate hundreds of email comments — warm leads who publicly opted in. LinkedIn gives you no way to export them. No copy button, no bulk select, just an endless scroll of comments you'd have to copy one by one.
 
-But LinkedIn gives you no way to export them. No copy button. No bulk select. Just an endless scroll of comments, one by one, manually.
-
-## The Opportunity
-
-These are some of the highest-intent contacts you'll ever find. They publicly opted in, on a post you or someone in your network made. Getting them into your newsletter should take minutes, not hours.
-
-LinkScrape automates the entire pipeline:
-
-```
-LinkedIn feed  →  Expand comments  →  Extract emails  →  Deduplicate  →  Notion
-```
+This tool automates the entire pipeline so what would take hours manually takes minutes.
 
 ## How It Works
 
-1. **Authenticate** — injects your `li_at` session cookie into a headless browser (no username/password, no 2FA friction)
-2. **Scroll your feed** — uses Playwright to scroll through posts with human-like jitter delays
-3. **Expand comments** — opens each post's comment section and loads all comments
-4. **Extract emails** — regex scans every comment for valid email addresses
-5. **Deduplicate** — checks against existing Notion records so reruns never create duplicates
-6. **Write to Notion** — adds each new email with source post URL, date, and a `New` status tag
+```
+LinkedIn feed  →  Extract text per scroll  →  Regex for emails  →  Deduplicate  →  Notion
+```
+
+1. **Authenticate** — saves your full LinkedIn session via a real browser login (one-time setup)
+2. **Scroll** — headless browser scrolls your feed with jittered delays to avoid detection
+3. **Extract** — regex scans all visible post and comment text for email addresses
+4. **Write** — new emails land in Notion tagged `New`, ready to export into your newsletter tool
 
 ---
 
 ## Quick Start
 
-### Prerequisites
+**Prerequisites:** Python 3.11+, a LinkedIn account, a Notion integration + database
 
-- Python 3.11+
-- A LinkedIn account (logged in in your browser)
-- A Notion account with an integration and database set up (see [Setup Guide](#setup-guide) below)
-
-### Install
+### 1. Install
 
 ```bash
 git clone https://github.com/jules631/LinkScrape.git
 cd LinkScrape
-
 pip install -r requirements.txt
 playwright install chromium
 ```
 
-### Authenticate (one-time)
+### 2. Authenticate (one-time)
 
 ```bash
 python setup_auth.py
 ```
 
-A browser window opens. Log into LinkedIn normally, then press Enter in the terminal. Your session is saved to `auth_state.json` — no cookie hunting required. Re-run this any time the scraper reports an auth error.
+A browser opens. Log into LinkedIn normally, then press Enter in the terminal. Your session is saved to `auth_state.json`. Re-run any time the scraper reports an auth error.
 
-### Configure
+### 3. Configure
 
 ```bash
 cp .env.example .env
-# Fill in NOTION_API_KEY and NOTION_DATABASE_ID — see Setup Guide below
+# Fill in NOTION_API_KEY and NOTION_DATABASE_ID
 ```
 
-### Run
+**Notion setup:**
+
+1. Go to [notion.so/my-integrations](https://www.notion.so/my-integrations) → **New integration** → copy the secret → paste as `NOTION_API_KEY`
+2. Create a database with these properties:
+
+   | Property | Type |
+   |---|---|
+   | Email | Title |
+   | Source Post URL | URL |
+   | Date Added | Date |
+   | Status | Select (options: New, Contacted, Unsubscribed) |
+
+3. Share the database with your integration: open the database → `...` → **Connections** → add your integration
+4. Copy the database ID from the URL (`notion.so/yourworkspace/<DATABASE_ID>?v=...`) → paste as `NOTION_DATABASE_ID`
+
+### 4. Run
 
 ```bash
-# Full run — scrapes feed and writes emails to Notion
-python main.py
-
-# Preview only — prints emails to terminal, nothing written to Notion
-python main.py --dry-run
-
-# Show the browser window while scraping (useful for debugging)
-python main.py --no-headless
-
-# Control how many feed pages to scroll through
-python main.py --max-scrolls 100
+python main.py --dry-run   # Preview: prints emails to terminal, writes nothing to Notion
+python main.py             # Full run: writes new emails to Notion
 ```
-
----
-
-## User Journey
-
-1. You see a "drop your email" post on LinkedIn with 300 comments
-2. You run `python setup_auth.py`, log in once through a browser window (30 seconds, one-time)
-3. You set up a Notion integration and database (5 minutes, one-time)
-4. You fill in `.env` with your Notion credentials
-5. You run `python main.py`
-6. The tool opens a headless browser, scrolls your feed, expands all comment sections, and finds every email address
-7. All emails appear in Notion tagged `New`, ready to export into Mailchimp, Beehiiv, ConvertKit, or any other newsletter tool
-
----
-
-## Expected Output
-
-> To see this interactively, run `python demo/simulate_run.py` — it plays back a realistic session with real timing.
-
-### While running
-
-You'll see live progress in the terminal as the tool scrolls your feed and finds emails:
-
-```
-09:12:03  INFO      DRY RUN — emails will be printed, not written to Notion.
-09:12:05  INFO      Navigating to LinkedIn feed...
-09:12:09  INFO      Feed loaded. Starting scrape...
-09:12:09  INFO      Starting feed scrape (max 50 scrolls)...
-09:12:14  INFO      Scroll 1/50 — found 6 new posts (6 total seen).
-09:12:21  INFO      Added: jane@gmail.com  (post: https://linkedin.com/feed/update/urn:...)
-09:12:22  INFO      Added: bob@outlook.com  (post: https://linkedin.com/feed/update/urn:...)
-09:12:31  INFO      Scroll 2/50 — found 5 new posts (11 total seen).
-...
-09:18:44  INFO      Feed exhausted — no new posts after 3 consecutive scrolls.
-
-──────────────────────────────────────────────────
-  Posts scraped:    47
-  Emails found:     183
-  New emails added: 176
-──────────────────────────────────────────────────
-```
-
-Duplicate emails (already in Notion from a previous run) are silently skipped — you'll see `New emails added` be lower than `Emails found` on reruns.
-
-### In Notion
-
-Once complete, your Notion database will have a new row for every email found:
-
-| Email | Source Post URL | Date Added | Status |
-|---|---|---|---|
-| jane@gmail.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
-| bob@outlook.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
-| sarah@company.com | https://linkedin.com/feed/update/urn:... | March 28, 2026 | New |
-
-Every row starts with **Status: New** so you can filter your database by `Status = New` to see exactly what was just added.
-
-### Getting emails into your newsletter tool
-
-From your Notion database, export the emails and import them into your newsletter platform:
-
-1. **Filter** your database to `Status = New`
-2. **Export** as CSV (top right `...` → Export → CSV)
-3. **Import** the CSV into your newsletter tool (Mailchimp, Beehiiv, ConvertKit, etc.)
-4. **Update** the Status of imported rows to `Contacted` so you know they've been actioned
-
----
-
-## Setup Guide
-
-### 1. Save your LinkedIn session
-
-```bash
-python setup_auth.py
-```
-
-A browser window will open. Log into LinkedIn as you normally would, then come back to the terminal and press Enter. Your full session (all cookies) is saved to `auth_state.json`.
-
-> If the scraper ever reports an authentication error, just run `python setup_auth.py` again.
-
----
-
-### 2. Create a Notion Integration
-
-1. Go to [https://www.notion.so/my-integrations](https://www.notion.so/my-integrations)
-2. Click **New integration**
-3. Give it a name (e.g. "LinkScrape") and select your workspace
-4. Under **Capabilities**, ensure **Read content**, **Insert content**, and **Read user information** are checked
-5. Click **Submit** and copy the **Internal Integration Secret**
-6. Paste it into `.env` as `NOTION_API_KEY=<your secret>`
-
----
-
-### 3. Create the Notion Database
-
-Create a new database in Notion with the following properties:
-
-| Property Name    | Type   | Notes                                   |
-|------------------|--------|-----------------------------------------|
-| Email            | Title  | The primary field — must be Title type  |
-| Source Post URL  | URL    | The LinkedIn post the email came from   |
-| Date Added       | Date   | When the email was scraped              |
-| Status           | Select | Options: New, Contacted, Unsubscribed   |
-
-Then **share the database with your integration**:
-1. Open the database in Notion
-2. Click `...` (top right) → **Connections**
-3. Search for and add your integration
-
-Finally, copy the database ID from the URL:
-```
-notion.so/yourworkspace/<DATABASE_ID>?v=...
-```
-Paste it into `.env` as `NOTION_DATABASE_ID=<your id>`
 
 ---
 
 ## CLI Options
 
-| Flag | Description | Default |
+| Flag | What it does | Default |
 |---|---|---|
-| `--max-scrolls N` | Number of feed scroll iterations | `50` (or `MAX_SCROLL_ITERATIONS` in `.env`) |
-| `--no-headless` | Show the browser window | Hidden |
-| `--dry-run` | Print emails to terminal, don't write to Notion | Off |
+| `--dry-run` | Print emails to terminal, skip Notion writes | off |
+| `--no-headless` | Show the browser window (useful for debugging) | hidden |
+| `--max-scrolls N` | Number of feed scroll iterations | 100 |
 
 ---
 
-## Notion Database Schema
+## Expected Output
 
-| Property        | Type   | Example Value                              |
-|-----------------|--------|--------------------------------------------|
-| Email           | Title  | jane@example.com                           |
-| Source Post URL | URL    | https://linkedin.com/feed/update/urn:...   |
-| Date Added      | Date   | 2026-03-28T14:32:00+00:00                  |
-| Status          | Select | New                                        |
+```
+09:12:05  INFO  Navigating to LinkedIn feed...
+09:12:09  INFO  Feed loaded. Starting scrape...
+09:12:14  INFO  Scroll 1/100 — 9497 new chars of content.
+09:12:16  INFO  Scroll 2/100 — 7831 new chars of content.
+...
+09:14:33  INFO  Feed exhausted — no new content after 3 consecutive scrolls.
+
+──────────────────────────────────────────────
+  Posts scraped:    31
+  Emails found:     94
+  New emails added: 87
+──────────────────────────────────────────────
+```
+
+Emails already in Notion are silently skipped — reruns are always safe.
+
+Once complete, your Notion database has a row for every new email found:
+
+| Email | Source Post URL | Date Added | Status |
+|---|---|---|---|
+| jane@gmail.com | https://linkedin.com/feed/ | 2026-03-30 | New |
+| bob@outlook.com | https://linkedin.com/feed/ | 2026-03-30 | New |
+
+Filter by `Status = New`, export as CSV, and import into Mailchimp, Beehiiv, ConvertKit, or any other newsletter tool.
 
 ---
 
 ## Notes
 
-- **Rate limiting**: LinkedIn scroll actions use randomised delays (default 3–7 s) to avoid pattern detection. Notion writes are throttled to stay within the 3 req/s API limit.
-- **Deduplication**: On startup the tool fetches all existing emails from your Notion database. Emails already present are skipped — reruns are safe.
-- **Selector changes**: LinkedIn periodically updates its UI. If scraping stops working, CSS selectors can be updated in the `SELECTORS` dict at the top of `scraper.py`.
+- **Rate limiting:** Scrolls use a 1–2s jitter plus an adaptive wait that proceeds as soon as LinkedIn renders new posts (up to 10s ceiling). Notion writes are throttled to stay within the 3 req/s API limit.
+- **Deduplication:** All existing Notion emails are loaded at startup. Reruns never create duplicates.
+- **Session expiry:** If auth fails, re-run `python setup_auth.py`.
